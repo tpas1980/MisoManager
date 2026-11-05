@@ -111,7 +111,7 @@ jobs:
             if [ -f "$file" ]; then
               echo "### $file" >> "$GITHUB_STEP_SUMMARY"
               grep -A50 -B10 -E '(InflateException|FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError|Caused by:)' "$file" | tail -n 150 >> "$GITHUB_STEP_SUMMARY" || true
-              grep -A50 -B10 -E '(InflateException|AssertionError)' "$file" | while IFS= read -r line; do
+              grep -A100 -B15 -E '(InflateException|AssertionError|PerformException|FATAL EXCEPTION|FAILED)' "$file" | while IFS= read -r line; do
                 echo "::error::$line"
               done || true
               grep -E '(FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError|Caused by:| at com\\.miso)' "$file" | tail -n 60 | while IFS= read -r line; do
