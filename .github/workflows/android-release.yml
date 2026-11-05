@@ -101,15 +101,30 @@ jobs:
           profile: Nexus 5
           disable-animations: true
           script: |
-            bash -o pipefail -c './gradlew --no-daemon connectedDebugAndroidTest 2>&1 | tee api24-test.log'
+            bash -c 'set -o pipefail; ./gradlew --no-daemon connectedDebugAndroidTest 2>&1 | tee api24-test.log; result=$?; adb logcat -d -s AndroidRuntime:E > api24-logcat.txt; exit $result'
 
       - name: Report API 24 test failure
         if: failure()
         shell: bash
         run: |
-          if [ -f api24-test.log ]; then
-            tail -n 100 api24-test.log >> "$GITHUB_STEP_SUMMARY"
-            grep -E '(FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError)' api24-test.log | tail -n 30 | while IFS= read -r line; do
-              echo "::error::$line"
-            done
-          fi
+          for file in api24-test.log api24-logcat.txt; do
+            if [ -f "$file" ]; then
+              echo "### $file" >> "$GITHUB_STEP_SUMMARY"
+              tail -n 100 "$file" >> "$GITHUB_STEP_SUMMARY"
+              grep -E '(FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError|Caused by:)' "$file" | tail -n 30 | while IFS= read -r line; do
+                echo "::error::$line"
+              done
+            fi
+          done
+
+      - name: Upload API 24 failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api24-smoke-failure-logs
+          path: |
+            api24-test.log
+            api24-logcat.txt
+            app/build/outputs/androidTest-results/connected
+            app/build/reports/androidTests/connected
+          if-no-files-found: ignore
