@@ -314,7 +314,7 @@ class MainActivity : AppCompatActivity() {
         fileAdapter.refreshColors()
     }
 
-    private fun toggleSort() {
+    internal fun toggleSort() {
         sortByName = !sortByName
         val byName = sortByName
         val filesSnapshot = displayedFiles.toList()
@@ -356,7 +356,7 @@ class MainActivity : AppCompatActivity() {
         setStroke(dp(1), palette.stroke)
     }
 
-    private fun showThemePicker() {
+    internal fun showThemePicker() {
         val labels = COLOR_THEMES.map { theme ->
             (if (theme.id == palette.id) "✓  " else "     ") + theme.label
         }.toTypedArray()

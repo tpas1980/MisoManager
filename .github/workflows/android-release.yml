@@ -69,3 +69,35 @@ jobs:
           files: app/build/outputs/apk/debug/app-debug.apk
           body: |
             Installable Android preview build of MisoManager. This APK is signed with the standard Android debug key and is intended for testing. A production Play Store release requires a private release-signing key.
+
+  legacy-api24-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.4
+
+      - name: Install Android test platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run sort and theme smoke test on Android 7.0
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 24
+          target: default
+          arch: x86
+          profile: Nexus 5
+          disable-animations: true
+          script: ./gradlew --no-daemon connectedDebugAndroidTest
