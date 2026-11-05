@@ -1,0 +1,71 @@
+name: Android APK
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.4
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build installable Android APK
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon clean assembleDebug 2>&1 | tee gradle-build.log
+
+      - name: Report build errors
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f gradle-build.log ]; then
+            tail -n 100 gradle-build.log >> "$GITHUB_STEP_SUMMARY"
+            grep -E '(^e: |error:|FAILURE:|Execution failed for task|What went wrong:|Could not resolve|Could not find)' gradle-build.log | tail -n 30 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MisoManager-Android-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub prerelease
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MisoManager ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          prerelease: true
+          generate_release_notes: true
+          files: app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            Installable Android preview build of MisoManager. This APK is signed with the standard Android debug key and is intended for testing. A production Play Store release requires a private release-signing key.
