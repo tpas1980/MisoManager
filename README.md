@@ -6,7 +6,8 @@ MisoManager is an open-source Android file manager, released under the MIT Licen
 
 - Opens main shared storage by default and browse into subfolders without an import-folder step
 - Search the current folder and sort folders/files by name or most recently modified
-- Create folders, open files in compatible apps, rename and delete items
+- Create folders and text files; edit plain-text files in the built-in editor (up to 2 MB)
+- Open other files in compatible apps, rename and delete items
 - Copy or move files and folders, including recursive folder copies
 - Translucent glassmorphism-style surfaces, gradient backdrops, and Android edge-to-edge support
 - Five switchable color themes, including a dark Midnight palette; the choice persists between launches
