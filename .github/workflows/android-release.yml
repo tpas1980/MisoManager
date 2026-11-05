@@ -100,4 +100,16 @@ jobs:
           arch: x86
           profile: Nexus 5
           disable-animations: true
-          script: ./gradlew --no-daemon connectedDebugAndroidTest
+          script: |
+            bash -o pipefail -c './gradlew --no-daemon connectedDebugAndroidTest 2>&1 | tee api24-test.log'
+
+      - name: Report API 24 test failure
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f api24-test.log ]; then
+            tail -n 100 api24-test.log >> "$GITHUB_STEP_SUMMARY"
+            grep -E '(FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError)' api24-test.log | tail -n 30 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
