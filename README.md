@@ -1,10 +1,10 @@
 # MisoManager
 
-MisoManager is a lightweight Android file manager. The first version uses Android's Storage Access Framework, so the app can only browse folders that you explicitly grant access to. No broad storage permission or account is required.
+MisoManager is an open-source Android file manager, released under the MIT License. It opens the device's main shared storage by default; users don't have to choose or import a folder. Android requires a one-time storage-access approval: older Android versions show the normal runtime permission prompt, while Android 11+ opens the system's "All files access" settings page. File listings load in the background to keep large storage roots responsive.
 
 ## Features
 
-- Browse a folder and its subfolders, with the selected location remembered between launches
+- Opens main shared storage by default and browse into subfolders without an import-folder step
 - Search the current folder and sort folders/files by name or most recently modified
 - Create folders, open files in compatible apps, rename and delete items
 - Copy or move files and folders, including recursive folder copies
