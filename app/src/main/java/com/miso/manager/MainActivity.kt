@@ -624,12 +624,13 @@ class MainActivity : AppCompatActivity() {
         }
         val scroll = android.widget.ScrollView(this).apply {
             isFillViewport = true
+            setPadding(dp(8), dp(6), dp(8), dp(6))
             addView(editor, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val title = if (file != null) "Edit ${file.name}" else "New $newName"
         val dialog = android.app.AlertDialog.Builder(this)
             .setTitle(title)
-            .setView(scroll, dp(20), dp(8), dp(20), dp(4))
+            .setView(scroll)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null)
             .create()
