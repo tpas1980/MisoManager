@@ -136,6 +136,11 @@ jobs:
             cat api24-test-failures.txt >> "$GITHUB_STEP_SUMMARY"
             while IFS= read -r line; do echo "::error::$line"; done < api24-test-failures.txt
           fi
+          for file in api24-test.log api24-logcat.txt; do
+            if [ -f "$file" ]; then
+              tail -n 200 "$file" | while IFS= read -r line; do echo "::error::$line"; done
+            fi
+          done
 
       - name: Upload API 24 failure logs
         if: failure()
