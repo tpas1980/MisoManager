@@ -44,6 +44,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 private data class ColorTheme(
     val id: String,
@@ -65,17 +66,19 @@ class MainActivity : AppCompatActivity() {
     private val folderStack = mutableListOf<DocumentFile>()
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var listGeneration = 0
+    private var sortGeneration = 0
     private var displayedFiles: List<DocumentFile> = emptyList()
     private var palette = COLOR_THEMES.first()
     private lateinit var pageRoot: LinearLayout
     private lateinit var addButton: FloatingActionButton
-    private var sortByName = true
+    @Volatile private var sortByName = true
     private var pendingAction: Pair<DocumentFile, Boolean>? = null
     private lateinit var toolbar: MaterialToolbar
     private lateinit var locationTitle: TextView
     private lateinit var locationSubtitle: TextView
     private lateinit var searchField: EditText
     private lateinit var list: RecyclerView
+    private lateinit var fileAdapter: FileAdapter
     private lateinit var emptyState: LinearLayout
     private lateinit var emptyTitle: TextView
     private lateinit var emptyMessage: TextView
@@ -97,7 +100,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         palette = COLOR_THEMES.firstOrNull { it.id == prefs.getString(KEY_COLOR_THEME, "sage") } ?: COLOR_THEMES.first()
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val edgeToEdge = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        WindowCompat.setDecorFitsSystemWindows(window, !edgeToEdge)
         buildInterface()
         applyPalette()
         if (hasStorageAccess()) openMainStorage() else render()
@@ -207,7 +211,10 @@ class MainActivity : AppCompatActivity() {
             overScrollMode = View.OVER_SCROLL_NEVER
             clipToPadding = false
             setPadding(0, 0, 0, dp(90))
+            itemAnimator = null
         }
+        fileAdapter = FileAdapter(emptyList(), ::openFile, ::showFileMenu)
+        list.adapter = fileAdapter
         content.addView(list, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         emptyState = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -261,10 +268,12 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(addButton, fabParams)
         pageRoot.addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        ViewCompat.setOnApplyWindowInsetsListener(pageRoot) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ViewCompat.setOnApplyWindowInsetsListener(pageRoot) { view, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                insets
+            }
         }
         setContentView(pageRoot)
     }
@@ -274,8 +283,9 @@ class MainActivity : AppCompatActivity() {
             GradientDrawable.Orientation.TL_BR,
             intArrayOf(palette.background, palette.backgroundEnd)
         )
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Color.TRANSPARENT
+        val edgeToEdge = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        window.statusBarColor = if (edgeToEdge) Color.TRANSPARENT else palette.background
+        window.navigationBarColor = if (edgeToEdge) Color.TRANSPARENT else palette.background
         WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = palette.isLight
             isAppearanceLightNavigationBars = palette.isLight
@@ -301,14 +311,32 @@ class MainActivity : AppCompatActivity() {
         addButton.backgroundTintList = ColorStateList.valueOf(palette.accent)
         addButton.imageTintList = ColorStateList.valueOf(if (palette.isLight) Color.WHITE else palette.background)
         list.setPadding(dp(14), dp(8), dp(14), dp(90))
-        if (currentFolder() != null) list.adapter = FileAdapter(displayedFiles, ::openFile, ::showFileMenu)
+        fileAdapter.refreshColors()
     }
 
     private fun toggleSort() {
         sortByName = !sortByName
-        displayedFiles = sortFiles(displayedFiles, sortByName)
-        list.adapter = FileAdapter(displayedFiles, ::openFile, ::showFileMenu)
-        toast(if (sortByName) "Sorted by name" else "Sorted by latest")
+        val byName = sortByName
+        val filesSnapshot = displayedFiles.toList()
+        val folderUri = currentFolder()?.uri
+        val listVersion = listGeneration
+        val request = ++sortGeneration
+        toast(if (byName) "Sorted by name" else "Sorted by latest")
+        try {
+            ioExecutor.execute {
+                val sorted = sortFiles(filesSnapshot, byName)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || request != sortGeneration || listVersion != listGeneration || currentFolder()?.uri != folderUri) return@runOnUiThread
+                    displayedFiles = sorted
+                    fileAdapter.replaceFiles(sorted)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            if (!isDestroyed) {
+                displayedFiles = sortFiles(filesSnapshot, byName)
+                fileAdapter.replaceFiles(displayedFiles)
+            }
+        }
     }
 
     private fun sortFiles(files: List<DocumentFile>, byName: Boolean): List<DocumentFile> = try {
@@ -406,6 +434,7 @@ class MainActivity : AppCompatActivity() {
         if (folder == null) {
             listGeneration++
             displayedFiles = emptyList()
+            fileAdapter.replaceFiles(emptyList())
             locationTitle.text = "Internal storage"
             locationSubtitle.text = "Your device files, in one place"
             searchField.isEnabled = false
@@ -424,7 +453,6 @@ class MainActivity : AppCompatActivity() {
         pasteButton.visibility = if (pendingAction != null) View.VISIBLE else View.GONE
 
         val query = searchField.text?.toString()?.trim()?.lowercase(Locale.getDefault()).orEmpty()
-        val sortByNameSnapshot = sortByName
         val generation = ++listGeneration
         list.visibility = View.GONE
         emptyState.visibility = View.VISIBLE
@@ -437,16 +465,14 @@ class MainActivity : AppCompatActivity() {
                 val children = folder.listFiles().filter { child ->
                     query.isBlank() || (child.name ?: "").contains(query, ignoreCase = true)
                 }
-                if (sortByNameSnapshot) {
-                    children.sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenBy { it.name?.lowercase(Locale.getDefault()) ?: "" })
-                } else {
-                    children.sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenByDescending { it.lastModified() })
-                }
+                val sortMode = sortByName
+                sortFiles(children, sortMode) to sortMode
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != listGeneration || currentFolder()?.uri != folder.uri) return@runOnUiThread
-                val loadedFiles = result.getOrElse {
+                val (files, sortedByName) = result.getOrElse {
                     displayedFiles = emptyList()
+                    fileAdapter.replaceFiles(emptyList())
                     list.visibility = View.GONE
                     emptyState.visibility = View.VISIBLE
                     emptyTitle.text = "Can't read this location"
@@ -454,9 +480,12 @@ class MainActivity : AppCompatActivity() {
                     chooseButton.visibility = View.GONE
                     return@runOnUiThread
                 }
-                val files = if (sortByNameSnapshot == sortByName) loadedFiles else sortFiles(loadedFiles, sortByName)
+                if (sortedByName != sortByName) {
+                    render()
+                    return@runOnUiThread
+                }
                 displayedFiles = files
-                list.adapter = FileAdapter(files, ::openFile, ::showFileMenu)
+                fileAdapter.replaceFiles(files)
                 val isEmpty = files.isEmpty()
                 list.visibility = if (isEmpty) View.GONE else View.VISIBLE
                 emptyState.visibility = if (isEmpty) View.VISIBLE else View.GONE
@@ -781,10 +810,29 @@ class MainActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private inner class FileAdapter(
-        private val files: List<DocumentFile>,
+        initialFiles: List<DocumentFile>,
         private val onClick: (DocumentFile) -> Unit,
         private val onMenu: (DocumentFile, View) -> Unit
     ) : RecyclerView.Adapter<FileAdapter.Holder>() {
+        private var files: List<DocumentFile> = initialFiles.toList()
+        private var updateVersion = 0
+
+        fun replaceFiles(newFiles: List<DocumentFile>) {
+            val version = ++updateVersion
+            val snapshot = newFiles.toList()
+            val update = Runnable {
+                if (version == updateVersion) {
+                    files = snapshot
+                    notifyDataSetChanged()
+                }
+            }
+            list.post(update)
+        }
+
+        fun refreshColors() {
+            list.post { notifyDataSetChanged() }
+        }
+
         inner class Holder(val row: LinearLayout, val icon: TextView, val name: TextView, val details: TextView, val more: TextView) : RecyclerView.ViewHolder(row)
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
             val row = LinearLayout(this@MainActivity).apply {
@@ -839,6 +887,12 @@ class MainActivity : AppCompatActivity() {
         }
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val file = files[position]
+            holder.row.background = glassDrawable(palette.glass, 20f)
+            holder.icon.setTextColor(palette.accent)
+            holder.icon.background = glassDrawable(palette.soft, 15f)
+            holder.name.setTextColor(palette.text)
+            holder.details.setTextColor(palette.muted)
+            holder.more.setTextColor(palette.muted)
             holder.icon.text = if (file.isDirectory) "▰" else file.name?.substringAfterLast('.', "")?.uppercase()?.take(3)?.ifBlank { "FILE" } ?: "FILE"
             holder.icon.textSize = if (file.isDirectory) 25f else 11f
             holder.name.text = file.name ?: "Unnamed"
