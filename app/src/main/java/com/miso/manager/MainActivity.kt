@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private val folderStack = mutableListOf<DocumentFile>()
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private var listGeneration = 0
+    private var displayedFiles: List<DocumentFile> = emptyList()
     private var palette = COLOR_THEMES.first()
     private lateinit var pageRoot: LinearLayout
     private lateinit var addButton: FloatingActionButton
@@ -145,7 +146,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_HOME -> { openMainStorage(); true }
-                MENU_SORT -> { sortByName = !sortByName; render(); toast(if (sortByName) "Sorted by name" else "Sorted by latest"); true }
+                MENU_SORT -> { toggleSort(); true }
                 MENU_MORE -> { showMoreMenu(); true }
                 else -> false
             }
@@ -250,10 +251,10 @@ class MainActivity : AppCompatActivity() {
 
         addButton = FloatingActionButton(this).apply {
             setImageResource(android.R.drawable.ic_input_add)
-            contentDescription = "Create folder"
+            contentDescription = "Create file or folder"
             backgroundTintList = android.content.res.ColorStateList.valueOf(palette.accent)
             imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            setOnClickListener { createFolderDialog() }
+            setOnClickListener { showCreateMenu() }
         }
         val fabParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.END).apply {
             setMargins(0, 0, dp(20), dp(20))
@@ -300,7 +301,24 @@ class MainActivity : AppCompatActivity() {
         addButton.backgroundTintList = ColorStateList.valueOf(palette.accent)
         addButton.imageTintList = ColorStateList.valueOf(if (palette.isLight) Color.WHITE else palette.background)
         list.setPadding(dp(14), dp(8), dp(14), dp(90))
-        render()
+        if (currentFolder() != null) list.adapter = FileAdapter(displayedFiles, ::openFile, ::showFileMenu)
+    }
+
+    private fun toggleSort() {
+        sortByName = !sortByName
+        displayedFiles = sortFiles(displayedFiles, sortByName)
+        list.adapter = FileAdapter(displayedFiles, ::openFile, ::showFileMenu)
+        toast(if (sortByName) "Sorted by name" else "Sorted by latest")
+    }
+
+    private fun sortFiles(files: List<DocumentFile>, byName: Boolean): List<DocumentFile> = try {
+        if (byName) {
+            files.sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenBy { it.name?.lowercase(Locale.getDefault()) ?: "" })
+        } else {
+            files.sortedWith(compareBy<DocumentFile> { !it.isDirectory }.thenByDescending { it.lastModified() })
+        }
+    } catch (_: Exception) {
+        files
     }
 
     private fun glassDrawable(fill: Int, radiusDp: Float = 20f): GradientDrawable = GradientDrawable().apply {
@@ -319,9 +337,15 @@ class MainActivity : AppCompatActivity() {
             .setSingleChoiceItems(labels, COLOR_THEMES.indexOfFirst { it.id == palette.id }) { dialog, which ->
                 palette = COLOR_THEMES[which]
                 prefs.edit().putString(KEY_COLOR_THEME, palette.id).apply()
-                applyPalette()
+                val selectedLabel = palette.label
                 dialog.dismiss()
-                toast("${palette.label} theme applied")
+                pageRoot.post {
+                    if (!isFinishing && !isDestroyed) {
+                        runCatching { applyPalette() }
+                            .onFailure { toast("Couldn't fully apply the theme") }
+                    }
+                }
+                toast("$selectedLabel theme applied")
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -381,6 +405,7 @@ class MainActivity : AppCompatActivity() {
         val folder = currentFolder()
         if (folder == null) {
             listGeneration++
+            displayedFiles = emptyList()
             locationTitle.text = "Internal storage"
             locationSubtitle.text = "Your device files, in one place"
             searchField.isEnabled = false
@@ -420,7 +445,8 @@ class MainActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed || generation != listGeneration || currentFolder()?.uri != folder.uri) return@runOnUiThread
-                val files = result.getOrElse {
+                val loadedFiles = result.getOrElse {
+                    displayedFiles = emptyList()
                     list.visibility = View.GONE
                     emptyState.visibility = View.VISIBLE
                     emptyTitle.text = "Can't read this location"
@@ -428,6 +454,8 @@ class MainActivity : AppCompatActivity() {
                     chooseButton.visibility = View.GONE
                     return@runOnUiThread
                 }
+                val files = if (sortByNameSnapshot == sortByName) loadedFiles else sortFiles(loadedFiles, sortByName)
+                displayedFiles = files
                 list.adapter = FileAdapter(files, ::openFile, ::showFileMenu)
                 val isEmpty = files.isEmpty()
                 list.visibility = if (isEmpty) View.GONE else View.VISIBLE
@@ -440,6 +468,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openFile(file: DocumentFile) {
+        if (!file.isDirectory && isTextFile(file.name)) {
+            showTextEditor(file)
+            return
+        }
         if (file.isDirectory) {
             if (!file.canRead()) { toast("This folder can't be opened"); return }
             folderStack.add(file)
@@ -462,7 +494,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showFileMenu(file: DocumentFile, anchor: View) {
         PopupMenu(this, anchor).apply {
-            menu.add("Open").setOnMenuItemClickListener { openFile(file); true }
+            menu.add(if (isTextFile(file.name) && !file.isDirectory) "Edit text" else "Open")
+                .setOnMenuItemClickListener { openFile(file); true }
             menu.add("Copy").setOnMenuItemClickListener { pendingAction = file to false; render(); toast("Ready to copy"); true }
             menu.add("Move").setOnMenuItemClickListener { pendingAction = file to true; render(); toast("Choose a destination folder, then tap Paste"); true }
             menu.add("Rename").setOnMenuItemClickListener { renameDialog(file); true }
@@ -474,7 +507,7 @@ class MainActivity : AppCompatActivity() {
     private fun showMoreMenu() {
         PopupMenu(this, toolbar).apply {
             menu.add(if (sortByName) "Sort by latest" else "Sort by name").setOnMenuItemClickListener {
-                sortByName = !sortByName; render(); true
+                toggleSort(); true
             }
             menu.add("Refresh").setOnMenuItemClickListener { render(); true }
             menu.add("Glass color theme").setOnMenuItemClickListener { showThemePicker(); true }
@@ -486,7 +519,7 @@ class MainActivity : AppCompatActivity() {
             menu.add("About MisoManager").setOnMenuItemClickListener {
                 android.app.AlertDialog.Builder(this@MainActivity)
                     .setTitle("MisoManager")
-                    .setMessage("An open-source Android file manager released under the MIT License.\n\nMisoManager opens your device's main storage after you grant Android's storage-access permission.")
+                    .setMessage("An open-source Android file manager released under the MIT License.\n\nMisoManager opens your device's main storage after you grant Android's storage-access permission. Text files can be created and edited in the built-in editor.")
                     .setPositiveButton("OK", null).show()
                 true
             }
@@ -507,6 +540,132 @@ class MainActivity : AppCompatActivity() {
                 else if (parent.findFile(name) != null) toast("A file with that name already exists")
                 else if (parent.createDirectory(name) == null) toast("Couldn't create folder") else render()
             }.show()
+    }
+
+    private fun showCreateMenu() {
+        PopupMenu(this, addButton).apply {
+            menu.add("New folder").setOnMenuItemClickListener { createFolderDialog(); true }
+            menu.add("New text file").setOnMenuItemClickListener { createTextFileDialog(); true }
+            show()
+        }
+    }
+
+    private fun createTextFileDialog() {
+        val parent = currentFolder() ?: run { requestStorageAccess(); return }
+        val nameInput = EditText(this).apply {
+            hint = "Filename, e.g. notes.txt"
+            setSingleLine(true)
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+        }
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("New text file")
+            .setView(nameInput)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                var name = nameInput.text.toString().trim()
+                if (name.isBlank() || name.contains('/') || name.contains('\\') || name.endsWith('.')) {
+                    toast("Enter a valid filename")
+                } else {
+                    if (!name.contains('.')) name += ".txt"
+                    if (!isTextFile(name)) {
+                        toast("Use a text extension such as .txt, .md, or .csv")
+                        return@setOnClickListener
+                    }
+                    if (parent.findFile(name) != null) {
+                        toast("A file with that name already exists")
+                    } else {
+                        dialog.dismiss()
+                        showTextEditor(file = null, parent = parent, newName = name)
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showTextEditor(file: DocumentFile?, parent: DocumentFile? = null, newName: String? = null) {
+        if (file != null && !isTextFile(file.name)) {
+            toast("This file type can't be edited as plain text")
+            return
+        }
+        val initialText = try {
+            if (file == null) "" else {
+                if (file.length() > MAX_TEXT_FILE_BYTES) {
+                    toast("Text files larger than 2 MB aren't supported by the editor")
+                    return
+                }
+                val path = file.uri.path ?: throw IllegalStateException("File path unavailable")
+                File(path).readText(Charsets.UTF_8)
+            }
+        } catch (_: Exception) {
+            toast("Couldn't read this text file")
+            return
+        }
+        val editor = EditText(this).apply {
+            setText(initialText)
+            setSelection(text.length)
+            textSize = 15f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextColor(palette.text)
+            setHintTextColor(palette.muted)
+            hint = "Write something…"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            gravity = Gravity.TOP or Gravity.START
+            setSingleLine(false)
+            setHorizontallyScrolling(false)
+            minLines = 16
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = glassDrawable(palette.glassStrong, 14f)
+        }
+        val scroll = android.widget.ScrollView(this).apply {
+            isFillViewport = true
+            addView(editor, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val title = if (file != null) "Edit ${file.name}" else "New $newName"
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(scroll, dp(20), dp(8), dp(20), dp(4))
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                try {
+                    val target = file ?: run {
+                        val targetParent = parent ?: throw IllegalStateException("No destination folder")
+                        val targetName = newName ?: throw IllegalStateException("No filename")
+                        targetParent.createFile("text/plain", targetName)
+                            ?: throw IllegalStateException("Couldn't create the file")
+                    }
+                    val path = target.uri.path ?: throw IllegalStateException("File path unavailable")
+                    val bytes = editor.text.toString().toByteArray(Charsets.UTF_8)
+                    if (bytes.size > MAX_TEXT_FILE_BYTES) {
+                        toast("Text files larger than 2 MB aren't supported by the editor")
+                        return@setOnClickListener
+                    }
+                    FileOutputStream(File(path)).use { output -> output.write(bytes) }
+                    dialog.dismiss()
+                    render()
+                    toast("Saved ${target.name ?: "text file"}")
+                } catch (_: Exception) {
+                    toast("Couldn't save this text file")
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun isTextFile(name: String?): Boolean {
+        val extension = name?.substringAfterLast('.', "")?.lowercase(Locale.ROOT) ?: return false
+        return extension in setOf(
+            "txt", "md", "markdown", "csv", "tsv", "log", "json", "xml", "html", "htm",
+            "css", "js", "kt", "java", "py", "sh", "yaml", "yml", "properties", "ini", "conf", "c", "h"
+        )
     }
 
     private fun renameDialog(file: DocumentFile) {
@@ -716,6 +875,7 @@ class MainActivity : AppCompatActivity() {
             ColorTheme("midnight", "Midnight Glass", color("#111927"), color("#202B3D"), color("#20FFFFFF"), color("#2BFFFFFF"), color("#55FFFFFF"), color("#82D9D1"), color("#354753"), color("#F1F4FB"), color("#B6C1D3"), isLight = false)
         )
         private const val KEY_COLOR_THEME = "color_theme"
+        private const val MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024
         private const val MENU_HOME = 101
         private const val MENU_SORT = 102
         private const val MENU_MORE = 103
