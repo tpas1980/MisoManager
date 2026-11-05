@@ -23,11 +23,16 @@ class LegacyApiUiSmokeTest {
     )
 
     @Test
-    fun sortAndThemeInteractionsDoNotCrashOnLegacyAndroid() {
+    fun sortingDoesNotCrashOnLegacyAndroid() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { it.toggleSort() }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        }
+    }
 
+    @Test
+    fun themeCanBeChangedOnLegacyAndroid() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { it.showThemePicker() }
             onView(withText(containsString("Ocean Blue"))).perform(click())
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
