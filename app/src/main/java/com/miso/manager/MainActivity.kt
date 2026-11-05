@@ -159,7 +159,7 @@ class MainActivity : AppCompatActivity() {
         searchField = EditText(this).apply {
             hint = "Search this folder"
             textSize = 15f
-            singleLine = true
+            setSingleLine(true)
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setPadding(dp(16), 0, dp(12), 0)
             background = glassDrawable(palette.glassStrong, 18f)
@@ -236,7 +236,7 @@ class MainActivity : AppCompatActivity() {
             setMargins(0, 0, dp(20), dp(20))
         }
         content.addView(addButton, fabParams)
-        pageRoot.addView(content, LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        pageRoot.addView(content, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         ViewCompat.setOnApplyWindowInsetsListener(pageRoot) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
