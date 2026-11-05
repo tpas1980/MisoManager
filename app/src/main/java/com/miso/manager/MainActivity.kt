@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchField: EditText
     private lateinit var list: RecyclerView
     private lateinit var fileAdapter: FileAdapter
+    internal var activeThemeDialog: android.app.Dialog? = null
     private lateinit var emptyState: LinearLayout
     private lateinit var emptyTitle: TextView
     private lateinit var emptyMessage: TextView
@@ -407,6 +408,8 @@ class MainActivity : AppCompatActivity() {
         panel.addView(cancelButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         dialog.setContentView(panel)
         dialog.setCanceledOnTouchOutside(true)
+        activeThemeDialog = dialog
+        dialog.setOnDismissListener { if (activeThemeDialog === dialog) activeThemeDialog = null }
         dialog.show()
         val width = (resources.displayMetrics.widthPixels - dp(48)).coerceAtMost(dp(420))
         dialog.window?.apply {
