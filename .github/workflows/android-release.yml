@@ -110,12 +110,25 @@ jobs:
           for file in api24-test.log api24-logcat.txt; do
             if [ -f "$file" ]; then
               echo "### $file" >> "$GITHUB_STEP_SUMMARY"
-              tail -n 100 "$file" >> "$GITHUB_STEP_SUMMARY"
-              grep -E '(FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError|Caused by:)' "$file" | tail -n 30 | while IFS= read -r line; do
+              grep -A50 -B10 -E '(InflateException|FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError|Caused by:)' "$file" | tail -n 150 >> "$GITHUB_STEP_SUMMARY" || true
+              grep -E '(FAILED|Failure|Exception|error:|FAILURE:|No tests found|AssertionError|Caused by:| at com\.miso)' "$file" | tail -n 60 | while IFS= read -r line; do
                 echo "::error::$line"
               done
             fi
           done
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in glob.glob('app/build/outputs/androidTest-results/connected/**/*.xml', recursive=True):
+              print(f'### Test result: {path}')
+              try:
+                  root = ET.parse(path).getroot()
+                  for node in root.iter('failure'):
+                      print(node.attrib)
+                      print(node.text or '')
+              except Exception as error:
+                  print(error)
+          PY
 
       - name: Upload API 24 failure logs
         if: failure()
