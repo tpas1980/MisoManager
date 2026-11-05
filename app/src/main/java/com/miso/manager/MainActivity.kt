@@ -357,26 +357,62 @@ class MainActivity : AppCompatActivity() {
     }
 
     internal fun showThemePicker() {
-        val labels = COLOR_THEMES.map { theme ->
-            (if (theme.id == palette.id) "✓  " else "     ") + theme.label
-        }.toTypedArray()
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Glass color theme")
-            .setSingleChoiceItems(labels, COLOR_THEMES.indexOfFirst { it.id == palette.id }) { dialog, which ->
-                palette = COLOR_THEMES[which]
-                prefs.edit().putString(KEY_COLOR_THEME, palette.id).apply()
-                val selectedLabel = palette.label
-                dialog.dismiss()
-                pageRoot.post {
-                    if (!isFinishing && !isDestroyed) {
-                        runCatching { applyPalette() }
-                            .onFailure { toast("Couldn't fully apply the theme") }
+        val dialog = android.app.Dialog(this)
+        dialog.setTitle("Glass color theme")
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(20), dp(22), dp(16))
+            background = glassDrawable(palette.glassStrong, 26f)
+        }
+        val title = TextView(this).apply {
+            text = "Glass color theme"
+            textSize = 20f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", 0)
+            setTextColor(palette.text)
+            setPadding(dp(4), 0, dp(4), dp(12))
+        }
+        panel.addView(title, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        COLOR_THEMES.forEach { theme ->
+            val option = TextView(this).apply {
+                text = (if (theme.id == palette.id) "✓  " else "     ") + theme.label
+                contentDescription = theme.label
+                textSize = 16f
+                setTextColor(palette.text)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                background = glassDrawable(if (theme.id == palette.id) palette.soft else palette.glass, 16f)
+                setOnClickListener {
+                    palette = theme
+                    prefs.edit().putString(KEY_COLOR_THEME, palette.id).apply()
+                    dialog.dismiss()
+                    pageRoot.post {
+                        if (!isFinishing && !isDestroyed) {
+                            runCatching { applyPalette() }
+                                .onFailure { toast("Couldn't fully apply the theme") }
+                        }
                     }
+                    toast("${theme.label} theme applied")
                 }
-                toast("$selectedLabel theme applied")
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+            panel.addView(option, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            })
+        }
+        val cancelButton = MaterialButton(this).apply {
+            text = "Cancel"
+            setTextColor(if (palette.isLight) Color.WHITE else palette.background)
+            backgroundTintList = ColorStateList.valueOf(palette.accent)
+            setOnClickListener { dialog.dismiss() }
+        }
+        panel.addView(cancelButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        dialog.setContentView(panel)
+        dialog.setCanceledOnTouchOutside(true)
+        dialog.show()
+        val width = (resources.displayMetrics.widthPixels - dp(48)).coerceAtMost(dp(420))
+        dialog.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
     }
 
     private fun hasStorageAccess(): Boolean {
