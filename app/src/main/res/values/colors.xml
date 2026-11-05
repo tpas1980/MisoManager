@@ -1,0 +1,10 @@
+<resources>
+    <color name="miso_cream">#F8F7F3</color>
+    <color name="miso_ink">#202522</color>
+    <color name="miso_muted">#777D77</color>
+    <color name="miso_green">#476B52</color>
+    <color name="miso_green_dark">#294332</color>
+    <color name="miso_lime">#D7E6C6</color>
+    <color name="miso_line">#E6E8E1</color>
+    <color name="miso_white">#FFFFFF</color>
+</resources>
